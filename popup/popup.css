@@ -1,0 +1,196 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font: 13px/1.5 "Segoe UI", sans-serif;
+  background: #f3f5f7;
+  color: #17212b;
+}
+
+.container {
+  width: 360px;
+  padding: 14px;
+}
+
+.header {
+  margin-bottom: 12px;
+}
+
+.header h1 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.subtitle {
+  margin: 4px 0 0;
+  color: #637381;
+  font-size: 11px;
+}
+
+.panel {
+  background: #fff;
+  border: 1px solid #dfe3e8;
+  border-radius: 10px;
+  padding: 12px;
+  margin-bottom: 10px;
+}
+
+.status-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.dot.idle {
+  background: #b0bac5;
+}
+
+.dot.running {
+  background: #0ea5e9;
+}
+
+.dot.completed {
+  background: #10b981;
+}
+
+.dot.error {
+  background: #ef4444;
+}
+
+.step-text {
+  margin-top: 8px;
+  min-height: 18px;
+  color: #52606d;
+  font-size: 12px;
+}
+
+.error-box {
+  margin-top: 8px;
+  background: #fff1f2;
+  color: #b42318;
+  border: 1px solid #fecdd3;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 12px;
+}
+
+.field {
+  margin-bottom: 10px;
+}
+
+.field:last-child {
+  margin-bottom: 0;
+}
+
+.field label {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 11px;
+  color: #52606d;
+}
+
+.field input,
+.field select {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  outline: none;
+  background: #fff;
+}
+
+.field input:focus,
+.field select:focus {
+  border-color: #0ea5e9;
+}
+
+.field-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.hint {
+  margin: 0;
+  font-size: 11px;
+  color: #637381;
+}
+
+.actions {
+  display: flex;
+  gap: 10px;
+}
+
+.actions.single .btn {
+  flex: 0 0 100%;
+}
+
+.btn {
+  flex: 1;
+  border: none;
+  border-radius: 8px;
+  padding: 9px 12px;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.btn.primary {
+  background: #10a37f;
+  color: #fff;
+}
+
+.btn.ghost {
+  background: #eef2f6;
+  color: #17212b;
+}
+
+.info-line {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 0;
+  border-bottom: 1px solid #eef2f6;
+  font-size: 12px;
+}
+
+.info-line:last-child {
+  border-bottom: none;
+}
+
+.info-line strong {
+  max-width: 210px;
+  text-align: right;
+  word-break: break-all;
+}
+
+.mail-preview {
+  margin-top: 8px;
+}
+
+.mail-preview label {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 11px;
+  color: #52606d;
+}
+
+.mail-preview textarea {
+  width: 100%;
+  min-height: 96px;
+  resize: vertical;
+  padding: 8px 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  outline: none;
+  background: #fff;
+  font: inherit;
+  color: inherit;
+}
