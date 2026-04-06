@@ -1062,24 +1062,27 @@ async function isIncognitoAccessAllowed() {
   try {
     return await new Promise((resolve) => {
       if (!chrome.extension?.isAllowedIncognitoAccess) {
-        resolve(false);
+        resolve(true);
         return;
       }
       chrome.extension.isAllowedIncognitoAccess((allowed) => resolve(Boolean(allowed)));
     });
   } catch (error) {
-    return false;
+    return true;
   }
 }
 
 async function reuseOrCreateTab({ url, preferredWindowId = null, incognito = false, createWindowIfNeeded = false }) {
   const incognitoAllowed = incognito ? await isIncognitoAccessAllowed() : true;
-  const targetIncognito = incognito && incognitoAllowed;
+  if (incognito && !incognitoAllowed) {
+    throw new Error('Incognito access is disabled. Please enable \"Allow in Incognito\" for this extension.');
+  }
+  const targetIncognito = incognito;
 
   if (preferredWindowId != null) {
     try {
       const activeTab = await getActiveTabInWindow(preferredWindowId);
-      if (activeTab?.id) {
+      if (activeTab?.id && Boolean(activeTab.incognito) === Boolean(targetIncognito)) {
         const updatedTab = await chrome.tabs.update(activeTab.id, { url, active: true });
         await focusWindow(updatedTab.windowId);
         return updatedTab;
@@ -1142,7 +1145,7 @@ async function reuseOrCreateTab({ url, preferredWindowId = null, incognito = fal
 
       throw new Error(
         targetIncognito
-          ? 'Failed to create browser window. 请在扩展详情里开启“允许在无痕模式运行”'
+          ? 'Failed to create incognito window. Please enable "Allow in Incognito" for this extension.'
           : 'Failed to create browser window (no window id returned)'
       );
     }
@@ -1154,7 +1157,7 @@ async function reuseOrCreateTab({ url, preferredWindowId = null, incognito = fal
     await focusWindow(createdTab.windowId);
     return createdTab;
   } catch (error) {
-    const fallbackWindow = await findAnyWindow(incognito);
+    const fallbackWindow = await findAnyWindow(targetIncognito);
     if (fallbackWindow?.tab?.id) {
       const updatedTab = await chrome.tabs.update(fallbackWindow.tab.id, { url, active: true });
       await focusWindow(updatedTab.windowId);
