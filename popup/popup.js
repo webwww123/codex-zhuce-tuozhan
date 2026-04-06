@@ -2,11 +2,13 @@
 const statusText = document.getElementById('status-text');
 const stepText = document.getElementById('step-text');
 const errorBox = document.getElementById('error-box');
+const inboxStatusText = document.getElementById('inbox-status');
 const generatedOauthUrlInput = document.getElementById('generated-oauth-url');
 
 const emailProviderInput = document.getElementById('email-provider');
 const runIncognitoInput = document.getElementById('run-incognito');
 const batchCountInput = document.getElementById('batch-count');
+const batchDelaySecondsInput = document.getElementById('batch-delay-seconds');
 const cpaUrlInput = document.getElementById('cpa-url');
 const cpaKeyInput = document.getElementById('cpa-key');
 const mailApiUrlInput = document.getElementById('mail-api-url');
@@ -42,6 +44,11 @@ function updateUI(state) {
   stepText.textContent = state.paused ? '已暂停' : `${state.step || ''}${batchText}`;
   pauseBtn.textContent = state.paused ? '继续' : '暂停';
   generatedOauthUrlInput.value = state.oauthSourceUrl || '';
+  const inboxEmail = state.verifyInboxStatus?.email || '';
+  const inboxMessage = state.verifyInboxStatus?.message || '';
+  inboxStatusText.textContent = inboxEmail || inboxMessage
+    ? `邮箱: ${inboxEmail || '-'} | ${inboxMessage || ''}`
+    : '';
 
   if (state.error) {
     errorBox.style.display = 'block';
@@ -73,6 +80,7 @@ async function loadConfig() {
   emailProviderInput.value = config.emailProvider || 'mailapi';
   runIncognitoInput.value = config.runInIncognito === false ? 'false' : 'true';
   batchCountInput.value = String(config.batchCount || 1);
+  batchDelaySecondsInput.value = String(config.batchDelaySeconds ?? 25);
   cpaUrlInput.value = config.cpaUrl || 'https://huangcli.zeabur.app';
   cpaKeyInput.value = config.cpaKey || '';
 
@@ -91,6 +99,7 @@ async function saveConfig() {
       emailProvider: emailProviderInput.value,
       runInIncognito: runIncognitoInput.value !== 'false',
       batchCount: Math.max(1, Math.min(200, Number(batchCountInput.value) || 1)),
+      batchDelaySeconds: Math.max(0, Math.min(300, Number(batchDelaySecondsInput.value) || 0)),
       cpaUrl: cpaUrlInput.value.trim(),
       cpaKey: cpaKeyInput.value.trim(),
 
@@ -107,10 +116,12 @@ async function saveConfig() {
 
 async function startRegistration() {
   const batchCount = Math.max(1, Math.min(200, Number(batchCountInput.value) || 1));
+  const batchDelaySeconds = Math.max(0, Math.min(300, Number(batchDelaySecondsInput.value) || 0));
   const response = await chrome.runtime.sendMessage({
     type: 'START_REGISTRATION',
     profile: {},
-    batchCount
+    batchCount,
+    batchDelaySeconds
   });
 
   if (response?.state) {

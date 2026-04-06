@@ -20,6 +20,7 @@
       </div>
       <div id="step-text" class="step-text"></div>
       <div id="error-box" class="error-box" style="display: none;"></div>
+      <div id="inbox-status" class="step-text" style="font-size:12px;color:#6b7280;"></div>
       <div class="field">
         <label for="generated-oauth-url">生成的 OAuth 地址</label>
         <input id="generated-oauth-url" type="text" readonly placeholder="这里会显示生成的 OAuth 地址">
@@ -44,6 +45,10 @@
       <div class="field">
         <label for="batch-count">注册数量</label>
         <input id="batch-count" type="number" min="1" max="200" step="1" value="1">
+      </div>
+      <div class="field">
+        <label for="batch-delay-seconds">批量间隔(秒)</label>
+        <input id="batch-delay-seconds" type="number" min="0" max="300" step="1" value="25">
       </div>
 
       <div class="field">

@@ -28,6 +28,7 @@ const DEFAULT_STATE = {
   },
   batchActive: false,
   batchTotal: 1,
+  batchDelaySeconds: 25,
   batchCurrentIndex: 0,
   batchFinishedCount: 0,
   batchSuccessCount: 0,
@@ -86,6 +87,15 @@ function normalizeBatchCount(value, fallback = 1) {
   return Math.min(numeric, 200);
 }
 
+function normalizeBatchDelaySeconds(value, fallback = 25) {
+  const numeric = Number.parseInt(value, 10);
+  if (!Number.isFinite(numeric) || numeric < 0) {
+    const fallbackNumeric = Number.parseInt(fallback, 10);
+    return Number.isFinite(fallbackNumeric) && fallbackNumeric >= 0 ? fallbackNumeric : 25;
+  }
+  return Math.min(numeric, 300);
+}
+
 
 function getPublicState() {
   return {
@@ -99,6 +109,7 @@ function getPublicState() {
     latestMail: state.latestMail || { sender: '', subject: '', time: '', preview: '' },
     batchActive: Boolean(state.batchActive),
     batchTotal: normalizeBatchCount(state.batchTotal, 1),
+    batchDelaySeconds: normalizeBatchDelaySeconds(state.batchDelaySeconds, 25),
     batchCurrentIndex: Math.max(0, Number.parseInt(state.batchCurrentIndex, 10) || 0),
     batchFinishedCount: Math.max(0, Number.parseInt(state.batchFinishedCount, 10) || 0),
     batchSuccessCount: Math.max(0, Number.parseInt(state.batchSuccessCount, 10) || 0),
@@ -154,6 +165,8 @@ async function advanceBatchIfNeeded() {
     }
 
     const nextIndex = finished + 1;
+    const delaySeconds = normalizeBatchDelaySeconds(state.batchDelaySeconds, 25);
+
     updateState({
       batchFinishedCount: finished,
       batchSuccessCount: success,
@@ -161,10 +174,21 @@ async function advanceBatchIfNeeded() {
       batchCurrentIndex: nextIndex,
       status: 'running',
       error: null,
-      step: `Starting account ${nextIndex}/${total}`
+      step: delaySeconds
+        ? `Cooling down ${delaySeconds}s before account ${nextIndex}/${total}`
+        : `Starting account ${nextIndex}/${total}`
     });
 
-    await new Promise((resolve) => setTimeout(resolve, 900));
+    if (delaySeconds > 0) {
+      await new Promise((resolve) => setTimeout(resolve, delaySeconds * 1000));
+    } else {
+      await new Promise((resolve) => setTimeout(resolve, 900));
+    }
+    updateState({
+      status: 'running',
+      step: `Starting account ${nextIndex}/${total}`,
+      error: null
+    });
     await startSingleRegistration(state.batchProfileTemplate || {});
   } catch (error) {
     updateState({
@@ -224,6 +248,7 @@ async function getConfig() {
     cpaUrl: DEFAULT_CPA_API_BASE,
     oauthUrl: '',
     batchCount: 1,
+    batchDelaySeconds: 25,
     runInIncognito: true,
     emailProvider: 'mailapi',
     duckForwardEmail: DUCK_FORWARD_AUPMAIL_EMAIL,
@@ -239,6 +264,7 @@ async function getConfig() {
   };
   next.emailProvider = next.emailProvider === 'duckduckgo' ? 'duckduckgo' : 'mailapi';
   next.batchCount = normalizeBatchCount(next.batchCount, 1);
+  next.batchDelaySeconds = normalizeBatchDelaySeconds(next.batchDelaySeconds, 25);
   next.runInIncognito = next.runInIncognito !== false;
   next.mailApiUrl = String(next.mailApiUrl || DEFAULT_MAILBOX_API_BASE).trim() || DEFAULT_MAILBOX_API_BASE;
   next.mailApiKey = String(next.mailApiKey || next.duckForwardPassword || DEFAULT_MAILBOX_API_KEY).trim();
@@ -253,6 +279,7 @@ async function setConfig(config) {
   const nextConfig = {
     emailProvider: provider,
     batchCount: normalizeBatchCount(config?.batchCount, 1),
+    batchDelaySeconds: normalizeBatchDelaySeconds(config?.batchDelaySeconds, 25),
     runInIncognito: config?.runInIncognito !== false,
     oauthUrl: (config?.oauthUrl || '').trim(),
     cpaUrl: (config?.cpaUrl || DEFAULT_CPA_API_BASE).trim() || DEFAULT_CPA_API_BASE,
@@ -1673,6 +1700,7 @@ async function startRegistration(profileInput, options = {}) {
 
   const config = await getConfig();
   const total = normalizeBatchCount(options.batchCount, config.batchCount || 1);
+  const delaySeconds = normalizeBatchDelaySeconds(options.batchDelaySeconds, config.batchDelaySeconds || 25);
   clearBatchAdvanceTimer();
   batchAdvancing = false;
 
@@ -1680,6 +1708,7 @@ async function startRegistration(profileInput, options = {}) {
   updateState({
     batchActive: total > 1,
     batchTotal: total,
+    batchDelaySeconds: delaySeconds,
     batchCurrentIndex: 1,
     batchFinishedCount: 0,
     batchSuccessCount: 0,
@@ -1751,7 +1780,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return true;
 
     case 'START_REGISTRATION':
-      startRegistration(message.profile || {}, { batchCount: message.batchCount }).then(sendResponse).catch((error) => {
+      startRegistration(message.profile || {}, {
+        batchCount: message.batchCount,
+        batchDelaySeconds: message.batchDelaySeconds
+      }).then(sendResponse).catch((error) => {
         updateState({
           status: 'error',
           step: '',
