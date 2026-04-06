@@ -1526,7 +1526,27 @@ async function openCpaWindow(cpaUrl) {
 }
 
 async function openOauthWindow(url, useIncognito = true) {
-  await closeOauthTab();
+  const stepLabel = useIncognito ? 'Opening Codex OAuth in incognito' : 'Opening Codex OAuth in regular window';
+  if (state.oauthTabId != null) {
+    try {
+      const existingTab = await chrome.tabs.get(state.oauthTabId);
+      if (existingTab?.id && Boolean(existingTab.incognito) === Boolean(useIncognito)) {
+        const reusedTab = await chrome.tabs.update(existingTab.id, { url, active: true });
+        await focusWindow(reusedTab.windowId);
+        updateState({
+          oauthTabId: reusedTab?.id ?? state.oauthTabId,
+          session: {
+            windowId: reusedTab?.windowId ?? state.session?.windowId ?? null,
+            tabId: reusedTab?.id ?? state.oauthTabId
+          },
+          step: stepLabel
+        });
+        return;
+      }
+    } catch (error) {
+    }
+  }
+
   const tab = await reuseOrCreateTab({
     url,
     preferredWindowId: state.session?.windowId || null,
@@ -1541,7 +1561,7 @@ async function openOauthWindow(url, useIncognito = true) {
       windowId: tab?.windowId || null,
       tabId
     },
-    step: 'Opening Codex OAuth in incognito'
+    step: stepLabel
   });
 }
 
