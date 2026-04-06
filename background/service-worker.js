@@ -26,6 +26,13 @@ const DEFAULT_STATE = {
     time: '',
     preview: ''
   },
+  batchActive: false,
+  batchTotal: 1,
+  batchCurrentIndex: 0,
+  batchFinishedCount: 0,
+  batchSuccessCount: 0,
+  batchFailedCount: 0,
+  batchProfileTemplate: null,
   useIncognito: true,
   consumedMailIds: [],
   finalFlowStarted: false,
@@ -36,6 +43,8 @@ const DEFAULT_STATE = {
 let state = { ...DEFAULT_STATE };
 let duckAddressWaiter = null;
 let gmailCodeWaiter = null;
+let batchAdvanceTimer = null;
+let batchAdvancing = false;
 const CONFIG_KEY = 'app_config';
 const FLOW_STATE_KEY = 'flow_state';
 const DEFAULT_CPA_API_BASE = 'https://huangcli.zeabur.app';
@@ -67,6 +76,17 @@ function generateProfile(input = {}) {
   };
 }
 
+
+function normalizeBatchCount(value, fallback = 1) {
+  const numeric = Number.parseInt(value, 10);
+  if (!Number.isFinite(numeric) || numeric < 1) {
+    const fallbackNumeric = Number.parseInt(fallback, 10);
+    return Number.isFinite(fallbackNumeric) && fallbackNumeric > 0 ? fallbackNumeric : 1;
+  }
+  return Math.min(numeric, 200);
+}
+
+
 function getPublicState() {
   return {
     status: state.status,
@@ -77,6 +97,12 @@ function getPublicState() {
     oauthSourceUrl: state.oauthSourceUrl || '',
     verifyInboxStatus: state.verifyInboxStatus || { email: '', state: 'idle', message: '' },
     latestMail: state.latestMail || { sender: '', subject: '', time: '', preview: '' },
+    batchActive: Boolean(state.batchActive),
+    batchTotal: normalizeBatchCount(state.batchTotal, 1),
+    batchCurrentIndex: Math.max(0, Number.parseInt(state.batchCurrentIndex, 10) || 0),
+    batchFinishedCount: Math.max(0, Number.parseInt(state.batchFinishedCount, 10) || 0),
+    batchSuccessCount: Math.max(0, Number.parseInt(state.batchSuccessCount, 10) || 0),
+    batchFailedCount: Math.max(0, Number.parseInt(state.batchFailedCount, 10) || 0),
     useIncognito: state.useIncognito !== false,
     paused: Boolean(state.paused)
   };
@@ -89,7 +115,83 @@ function broadcastState() {
   }).catch(() => {});
 }
 
+function clearBatchAdvanceTimer() {
+  if (batchAdvanceTimer) {
+    clearTimeout(batchAdvanceTimer);
+    batchAdvanceTimer = null;
+  }
+}
+
+async function advanceBatchIfNeeded() {
+  if (batchAdvancing || !state.batchActive) {
+    return;
+  }
+  if (!['completed', 'error'].includes(state.status)) {
+    return;
+  }
+  if ((state.batchFinishedCount || 0) >= (state.batchCurrentIndex || 0)) {
+    return;
+  }
+
+  batchAdvancing = true;
+  try {
+    const total = normalizeBatchCount(state.batchTotal, 1);
+    const finished = (state.batchFinishedCount || 0) + 1;
+    const success = (state.batchSuccessCount || 0) + (state.status === 'completed' ? 1 : 0);
+    const failed = (state.batchFailedCount || 0) + (state.status === 'error' ? 1 : 0);
+
+    if (finished >= total) {
+      updateState({
+        batchActive: false,
+        batchFinishedCount: finished,
+        batchSuccessCount: success,
+        batchFailedCount: failed,
+        status: 'completed',
+        error: null,
+        step: `Batch finished: ${success}/${total} succeeded${failed ? `, ${failed} failed` : ''}`
+      });
+      return;
+    }
+
+    const nextIndex = finished + 1;
+    updateState({
+      batchFinishedCount: finished,
+      batchSuccessCount: success,
+      batchFailedCount: failed,
+      batchCurrentIndex: nextIndex,
+      status: 'running',
+      error: null,
+      step: `Starting account ${nextIndex}/${total}`
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 900));
+    await startSingleRegistration(state.batchProfileTemplate || {});
+  } catch (error) {
+    updateState({
+      status: 'error',
+      error: error.message || String(error)
+    });
+  } finally {
+    batchAdvancing = false;
+  }
+}
+
+function scheduleBatchAdvance() {
+  if (!state.batchActive || !['completed', 'error'].includes(state.status)) {
+    return;
+  }
+  if (batchAdvanceTimer || batchAdvancing) {
+    return;
+  }
+
+  batchAdvanceTimer = setTimeout(() => {
+    batchAdvanceTimer = null;
+    advanceBatchIfNeeded().catch(() => {});
+  }, 1200);
+}
+
 function updateState(updates) {
+  const previousStatus = state.status;
   state = { ...state, ...updates };
   chrome.storage.local.set({
     [FLOW_STATE_KEY]: {
@@ -100,6 +202,9 @@ function updateState(updates) {
     }
   }).catch(() => {});
   broadcastState();
+  if (previousStatus !== state.status && ['completed', 'error'].includes(state.status)) {
+    scheduleBatchAdvance();
+  }
 }
 
 async function getPersistedFlowState() {
@@ -118,6 +223,7 @@ async function getConfig() {
     cpaKey: '',
     cpaUrl: DEFAULT_CPA_API_BASE,
     oauthUrl: '',
+    batchCount: 1,
     runInIncognito: true,
     emailProvider: 'mailapi',
     duckForwardEmail: DUCK_FORWARD_AUPMAIL_EMAIL,
@@ -132,6 +238,7 @@ async function getConfig() {
     ...saved
   };
   next.emailProvider = next.emailProvider === 'duckduckgo' ? 'duckduckgo' : 'mailapi';
+  next.batchCount = normalizeBatchCount(next.batchCount, 1);
   next.runInIncognito = next.runInIncognito !== false;
   next.mailApiUrl = String(next.mailApiUrl || DEFAULT_MAILBOX_API_BASE).trim() || DEFAULT_MAILBOX_API_BASE;
   next.mailApiKey = String(next.mailApiKey || next.duckForwardPassword || DEFAULT_MAILBOX_API_KEY).trim();
@@ -145,6 +252,7 @@ async function setConfig(config) {
   const mailApiKey = (config?.mailApiKey || config?.duckForwardPassword || DEFAULT_MAILBOX_API_KEY).trim();
   const nextConfig = {
     emailProvider: provider,
+    batchCount: normalizeBatchCount(config?.batchCount, 1),
     runInIncognito: config?.runInIncognito !== false,
     oauthUrl: (config?.oauthUrl || '').trim(),
     cpaUrl: (config?.cpaUrl || DEFAULT_CPA_API_BASE).trim() || DEFAULT_CPA_API_BASE,
@@ -1493,7 +1601,7 @@ async function requestVerificationCode() {
   });
 }
 
-async function startRegistration(profileInput) {
+async function startSingleRegistration(profileInput) {
   const profile = generateProfile(profileInput);
   const config = await getConfig();
   const useIncognito = config.runInIncognito !== false;
@@ -1558,6 +1666,30 @@ async function startRegistration(profileInput) {
   return { success: true, state: getPublicState() };
 }
 
+async function startRegistration(profileInput, options = {}) {
+  if (state.status === 'running') {
+    throw new Error('Registration is already running');
+  }
+
+  const config = await getConfig();
+  const total = normalizeBatchCount(options.batchCount, config.batchCount || 1);
+  clearBatchAdvanceTimer();
+  batchAdvancing = false;
+
+  const template = { ...(profileInput || {}) };
+  updateState({
+    batchActive: total > 1,
+    batchTotal: total,
+    batchCurrentIndex: 1,
+    batchFinishedCount: 0,
+    batchSuccessCount: 0,
+    batchFailedCount: 0,
+    batchProfileTemplate: template
+  });
+
+  return startSingleRegistration(template);
+}
+
 async function resetState() {
   const windowId = state.session?.windowId;
   if (windowId) {
@@ -1572,6 +1704,8 @@ async function resetState() {
   await closeCpaTab();
   await closeOauthTab();
   await cleanupManagedMailboxSession(state.aupmailSession);
+  clearBatchAdvanceTimer();
+  batchAdvancing = false;
   duckAddressWaiter = null;
   gmailCodeWaiter = null;
   await chrome.storage.local.remove(FLOW_STATE_KEY);
@@ -1617,7 +1751,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return true;
 
     case 'START_REGISTRATION':
-      startRegistration(message.profile || {}).then(sendResponse).catch((error) => {
+      startRegistration(message.profile || {}, { batchCount: message.batchCount }).then(sendResponse).catch((error) => {
         updateState({
           status: 'error',
           step: '',

@@ -6,6 +6,7 @@ const generatedOauthUrlInput = document.getElementById('generated-oauth-url');
 
 const emailProviderInput = document.getElementById('email-provider');
 const runIncognitoInput = document.getElementById('run-incognito');
+const batchCountInput = document.getElementById('batch-count');
 const cpaUrlInput = document.getElementById('cpa-url');
 const cpaKeyInput = document.getElementById('cpa-key');
 const mailApiUrlInput = document.getElementById('mail-api-url');
@@ -35,7 +36,10 @@ function updateUI(state) {
   };
 
   statusText.textContent = textMap[state.status] || '就绪';
-  stepText.textContent = state.paused ? '已暂停' : (state.step || '');
+  const batchText = Number(state.batchTotal || 1) > 1
+    ? ` [${state.batchCurrentIndex || 0}/${state.batchTotal}] 成功:${state.batchSuccessCount || 0} 失败:${state.batchFailedCount || 0}`
+    : '';
+  stepText.textContent = state.paused ? '已暂停' : `${state.step || ''}${batchText}`;
   pauseBtn.textContent = state.paused ? '继续' : '暂停';
   generatedOauthUrlInput.value = state.oauthSourceUrl || '';
 
@@ -68,6 +72,7 @@ async function loadConfig() {
 
   emailProviderInput.value = config.emailProvider || 'mailapi';
   runIncognitoInput.value = config.runInIncognito === false ? 'false' : 'true';
+  batchCountInput.value = String(config.batchCount || 1);
   cpaUrlInput.value = config.cpaUrl || 'https://huangcli.zeabur.app';
   cpaKeyInput.value = config.cpaKey || '';
 
@@ -85,6 +90,7 @@ async function saveConfig() {
     config: {
       emailProvider: emailProviderInput.value,
       runInIncognito: runIncognitoInput.value !== 'false',
+      batchCount: Math.max(1, Math.min(200, Number(batchCountInput.value) || 1)),
       cpaUrl: cpaUrlInput.value.trim(),
       cpaKey: cpaKeyInput.value.trim(),
 
@@ -100,9 +106,11 @@ async function saveConfig() {
 }
 
 async function startRegistration() {
+  const batchCount = Math.max(1, Math.min(200, Number(batchCountInput.value) || 1));
   const response = await chrome.runtime.sendMessage({
     type: 'START_REGISTRATION',
-    profile: {}
+    profile: {},
+    batchCount
   });
 
   if (response?.state) {
