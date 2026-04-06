@@ -1072,8 +1072,42 @@
       return false;
     }
 
+    const findResendCodeButton = () => findClickableByText([
+      /^resend$/i,
+      /^resend code$/i,
+      /^send again$/i,
+      /^try again$/i,
+      /^重新发送$/,
+      /^重新发送验证码$/,
+      /^重发验证码$/
+    ]);
+
+    const requestCodeWithResend = async () => {
+      const codePromise = requestGmailCode();
+      let settled = false;
+      codePromise.finally(() => {
+        settled = true;
+      });
+
+      let attempt = 0;
+      while (!settled) {
+        await sleep(30000);
+        if (settled) {
+          break;
+        }
+        const resendButton = findResendCodeButton();
+        if (resendButton) {
+          attempt += 1;
+          updateStep(`No code yet, trying resend #${attempt}`);
+          clickButton(resendButton);
+        }
+      }
+
+      return codePromise;
+    };
+
     updateStep('Opening verification inbox to fetch latest OpenAI code');
-    const code = await requestGmailCode();
+    const code = await requestCodeWithResend();
     if (!code) {
       throw new Error('Unable to fetch verification code from configured inbox');
     }
