@@ -9,6 +9,7 @@ const emailProviderInput = document.getElementById('email-provider');
 const runIncognitoInput = document.getElementById('run-incognito');
 const batchCountInput = document.getElementById('batch-count');
 const batchDelaySecondsInput = document.getElementById('batch-delay-seconds');
+const codeTimeoutSecondsInput = document.getElementById('code-timeout-seconds');
 const cpaUrlInput = document.getElementById('cpa-url');
 const cpaKeyInput = document.getElementById('cpa-key');
 const mailApiUrlInput = document.getElementById('mail-api-url');
@@ -81,6 +82,7 @@ async function loadConfig() {
   runIncognitoInput.value = config.runInIncognito === false ? 'false' : 'true';
   batchCountInput.value = String(config.batchCount || 1);
   batchDelaySecondsInput.value = String(config.batchDelaySeconds ?? 25);
+  codeTimeoutSecondsInput.value = String(config.codeWaitTimeoutSeconds ?? 150);
   cpaUrlInput.value = config.cpaUrl || 'https://huangcli.zeabur.app';
   cpaKeyInput.value = config.cpaKey || '';
 
@@ -100,6 +102,7 @@ async function saveConfig() {
       runInIncognito: runIncognitoInput.value !== 'false',
       batchCount: Math.max(1, Math.min(200, Number(batchCountInput.value) || 1)),
       batchDelaySeconds: Math.max(0, Math.min(300, Number(batchDelaySecondsInput.value) || 0)),
+      codeWaitTimeoutSeconds: Math.max(30, Math.min(600, Number(codeTimeoutSecondsInput.value) || 150)),
       cpaUrl: cpaUrlInput.value.trim(),
       cpaKey: cpaKeyInput.value.trim(),
 

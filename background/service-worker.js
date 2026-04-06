@@ -96,6 +96,15 @@ function normalizeBatchDelaySeconds(value, fallback = 25) {
   return Math.min(numeric, 300);
 }
 
+function normalizeCodeWaitTimeoutSeconds(value, fallback = 150) {
+  const numeric = Number.parseInt(value, 10);
+  if (!Number.isFinite(numeric) || numeric < 30) {
+    const fallbackNumeric = Number.parseInt(fallback, 10);
+    return Number.isFinite(fallbackNumeric) && fallbackNumeric >= 30 ? fallbackNumeric : 150;
+  }
+  return Math.min(numeric, 600);
+}
+
 
 function getPublicState() {
   return {
@@ -249,6 +258,7 @@ async function getConfig() {
     oauthUrl: '',
     batchCount: 1,
     batchDelaySeconds: 25,
+    codeWaitTimeoutSeconds: 150,
     runInIncognito: true,
     emailProvider: 'mailapi',
     duckForwardEmail: DUCK_FORWARD_AUPMAIL_EMAIL,
@@ -265,6 +275,7 @@ async function getConfig() {
   next.emailProvider = next.emailProvider === 'duckduckgo' ? 'duckduckgo' : 'mailapi';
   next.batchCount = normalizeBatchCount(next.batchCount, 1);
   next.batchDelaySeconds = normalizeBatchDelaySeconds(next.batchDelaySeconds, 25);
+  next.codeWaitTimeoutSeconds = normalizeCodeWaitTimeoutSeconds(next.codeWaitTimeoutSeconds, 150);
   next.runInIncognito = next.runInIncognito !== false;
   next.mailApiUrl = String(next.mailApiUrl || DEFAULT_MAILBOX_API_BASE).trim() || DEFAULT_MAILBOX_API_BASE;
   next.mailApiKey = String(next.mailApiKey || next.duckForwardPassword || DEFAULT_MAILBOX_API_KEY).trim();
@@ -280,6 +291,7 @@ async function setConfig(config) {
     emailProvider: provider,
     batchCount: normalizeBatchCount(config?.batchCount, 1),
     batchDelaySeconds: normalizeBatchDelaySeconds(config?.batchDelaySeconds, 25),
+    codeWaitTimeoutSeconds: normalizeCodeWaitTimeoutSeconds(config?.codeWaitTimeoutSeconds, 150),
     runInIncognito: config?.runInIncognito !== false,
     oauthUrl: (config?.oauthUrl || '').trim(),
     cpaUrl: (config?.cpaUrl || DEFAULT_CPA_API_BASE).trim() || DEFAULT_CPA_API_BASE,
@@ -899,7 +911,7 @@ async function requestAupmailCode(options = {}) {
   }
 
   const startedAt = Date.now();
-  const timeoutMs = 240000;
+  const timeoutMs = Math.max(30000, Number.parseInt(options.timeoutMs, 10) || 240000);
   const expectedRecipient = String(options.expectedRecipient || state.lastProfile?.email || '').trim().toLowerCase();
   const notBeforeMs = startedAt - 15000;
   const seenEmailIds = new Set();
@@ -1010,7 +1022,7 @@ async function requestAupmailCode(options = {}) {
     await new Promise((resolve) => setTimeout(resolve, 5000));
   }
 
-  throw new Error(`Timed out while waiting for mailbox verification code for ${session.email || session.mailboxId}`);
+  throw new Error(`Timed out (${Math.round(timeoutMs / 1000)}s) while waiting for mailbox verification code for ${session.email || session.mailboxId}`);
 }
 
 function extractAuthUrlFromResponse(payload) {
@@ -1594,13 +1606,15 @@ async function requestGmailCode() {
 
 async function requestVerificationCode() {
   const config = await getConfig();
+  const timeoutSeconds = normalizeCodeWaitTimeoutSeconds(config.codeWaitTimeoutSeconds, 150);
+  const timeoutMs = timeoutSeconds * 1000;
   if (config.emailProvider === 'mailapi') {
     updateState({
       status: 'running',
-      step: 'Waiting for latest OpenAI email in Mailbox API',
+      step: `Waiting for latest OpenAI email in Mailbox API (timeout ${timeoutSeconds}s)`,
       error: null
     });
-    return requestAupmailCode();
+    return requestAupmailCode({ timeoutMs });
   }
 
   const duckForwardEmail = String(config.duckForwardEmail || '').trim() || DUCK_FORWARD_AUPMAIL_EMAIL;
@@ -1624,7 +1638,8 @@ async function requestVerificationCode() {
   });
   return requestAupmailCode({
     session: adminSession,
-    expectedRecipient: ''
+    expectedRecipient: '',
+    timeoutMs
   });
 }
 
