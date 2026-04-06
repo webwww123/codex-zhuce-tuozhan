@@ -1091,7 +1091,7 @@
 
       let attempt = 0;
       while (!settled) {
-        await sleep(30000);
+        await sleep(20000);
         if (settled) {
           break;
         }
