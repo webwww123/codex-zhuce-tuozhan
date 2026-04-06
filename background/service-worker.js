@@ -383,28 +383,48 @@ async function detectGmailAccountEmailInTab(tabId) {
   try {
     const results = await chrome.scripting.executeScript({
       target: { tabId },
-      func: () => {
-        const collect = [];
-        const push = (text) => {
-          if (text && typeof text === 'string') {
-            collect.push(text);
+      func: async () => {
+        const EMAIL_RE = /[a-z0-9._%+-]+@[a-z0-9.-]+\\.[a-z]{2,}/ig;
+        const score = new Map();
+        const addCandidate = (value, weight = 1) => {
+          if (!value || typeof value !== 'string') {
+            return;
+          }
+          const matches = value.match(EMAIL_RE) || [];
+          for (const raw of matches) {
+            const email = raw.toLowerCase();
+            score.set(email, (score.get(email) || 0) + weight);
           }
         };
 
-        push(document.querySelector('a[href*=\"SignOutOptions\"]')?.getAttribute('aria-label') || '');
-        push(document.querySelector('a[aria-label*=\"Google Account\"]')?.getAttribute('aria-label') || '');
-        push(document.querySelector('[data-email]')?.getAttribute('data-email') || '');
-        push(document.title || '');
+        // 高权重：账号相关元素
+        addCandidate(document.querySelector('a[href*=\"SignOutOptions\"]')?.getAttribute('aria-label') || '', 8);
+        addCandidate(document.querySelector('a[aria-label*=\"Google Account\"]')?.getAttribute('aria-label') || '', 8);
+        addCandidate(document.querySelector('[data-email]')?.getAttribute('data-email') || '', 10);
+        addCandidate(document.querySelector('div[aria-label*=\"Google Account\"]')?.getAttribute('aria-label') || '', 8);
+        addCandidate(document.title || '', 3);
 
-        const candidates = [];
-        for (const item of collect) {
-          const match = String(item).match(/[a-z0-9._%+-]+@[a-z0-9.-]+\\.[a-z]{2,}/i);
-          if (match?.[0]) {
-            candidates.push(match[0].toLowerCase());
+        // 中权重：页面文本中可能出现账号
+        addCandidate(document.body?.innerText?.slice(0, 20000) || '', 1);
+
+        // 兜底：Gmail atom feed 里通常包含 “Inbox for xxx@xxx”
+        try {
+          const feedResp = await fetch('/mail/feed/atom', { credentials: 'include' });
+          const feedText = await feedResp.text();
+          const inboxForMatch =
+            feedText.match(/Inbox for\\s+([a-z0-9._%+-]+@[a-z0-9.-]+\\.[a-z]{2,})/i) ||
+            feedText.match(/for\\s+([a-z0-9._%+-]+@[a-z0-9.-]+\\.[a-z]{2,})/i);
+          if (inboxForMatch?.[1]) {
+            addCandidate(inboxForMatch[1], 20);
           }
+          addCandidate(feedText, 6);
+        } catch (error) {
         }
 
-        return candidates[0] || '';
+        const best = Array.from(score.entries())
+          .sort((a, b) => b[1] - a[1])
+          .map(([email]) => email)[0] || '';
+        return best;
       }
     });
     return normalizeGmailBaseEmail(results?.[0]?.result || '');
@@ -427,7 +447,7 @@ async function allocateGmailAliasEmail() {
   }
 
   if (!baseEmail) {
-    throw new Error('Unable to detect Gmail account from current Gmail tab');
+    throw new Error('Unable to detect Gmail account from current Gmail tab. Please fill \"Gmail 基础邮箱\" manually in settings.');
   }
 
   const nextCounter = Math.max(1, Number.parseInt(config.gmailAliasCounter, 10) || 0) + 1;
