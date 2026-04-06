@@ -1412,15 +1412,45 @@ async function openOauthWindow(url, useIncognito = true) {
   });
 }
 
+function buildOauthLoginUrl(url) {
+  try {
+    const parsed = new URL(String(url || '').trim());
+    parsed.searchParams.set('mode', 'login');
+    parsed.searchParams.set('screen_hint', 'login');
+    return parsed.toString();
+  } catch (error) {
+    return String(url || '').trim();
+  }
+}
+
 async function openOauthRetryTab(url) {
-  await closeOauthTab();
   const useIncognito = state.useIncognito !== false;
+  const loginUrl = buildOauthLoginUrl(url);
+
+  if (state.oauthTabId != null) {
+    try {
+      const tab = await chrome.tabs.update(state.oauthTabId, {
+        url: loginUrl,
+        active: true
+      });
+      updateState({
+        oauthTabId: tab?.id ?? state.oauthTabId,
+        session: {
+          windowId: tab?.windowId ?? state.session?.windowId ?? null,
+          tabId: tab?.id ?? state.oauthTabId
+        },
+        step: 'Reloading OAuth in the same tab (login mode)'
+      });
+      return;
+    } catch (error) {
+    }
+  }
 
   try {
     if (useIncognito && state.session?.windowId) {
       const tab = await chrome.tabs.create({
         windowId: state.session.windowId,
-        url,
+        url: loginUrl,
         active: true
       });
       updateState({
@@ -1431,12 +1461,12 @@ async function openOauthRetryTab(url) {
         },
         step: 'Opening OAuth retry tab in incognito'
       });
-      return;
+        return;
     }
   } catch (error) {
   }
 
-  await openOauthWindow(url, useIncognito);
+  await openOauthWindow(loginUrl || url, useIncognito);
 }
 
 async function startCpaOAuthFlow() {
