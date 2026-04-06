@@ -199,7 +199,7 @@ async function advanceBatchIfNeeded() {
       step: `Starting account ${nextIndex}/${total}`,
       error: null
     });
-    await startSingleRegistration(state.batchProfileTemplate || {});
+    await startSingleRegistration(state.batchProfileTemplate || {}, { resetIncognitoWindow: false });
   } catch (error) {
     updateState({
       status: 'error',
@@ -1856,19 +1856,22 @@ async function requestVerificationCode() {
   });
 }
 
-async function startSingleRegistration(profileInput) {
+async function startSingleRegistration(profileInput, options = {}) {
   const profile = generateProfile(profileInput);
   const config = await getConfig();
   const useIncognito = config.runInIncognito !== false;
+  const resetIncognitoWindow = options.resetIncognitoWindow !== false;
 
   updateState({
     status: 'running',
-    step: useIncognito ? 'Closing existing incognito windows' : 'Preparing browser window',
+    step: useIncognito
+      ? (resetIncognitoWindow ? 'Closing existing incognito windows' : 'Reusing existing incognito window')
+      : 'Preparing browser window',
     error: null,
     useIncognito
   });
 
-  if (useIncognito) {
+  if (useIncognito && resetIncognitoWindow) {
     await closeAllIncognitoWindows();
   }
   await cleanupManagedMailboxSession(state.aupmailSession);
@@ -1916,7 +1919,7 @@ async function startSingleRegistration(profileInput) {
     lastProfile: profile,
     pendingProfile: null,
     aupmailSession: state.aupmailSession,
-    session: null,
+    session: resetIncognitoWindow ? null : state.session,
     finalFlowStarted: false,
     postSignupPending: false
   });
@@ -1959,7 +1962,7 @@ async function startRegistration(profileInput, options = {}) {
     batchProfileTemplate: template
   });
 
-  return startSingleRegistration(template);
+  return startSingleRegistration(template, { resetIncognitoWindow: true });
 }
 
 async function resetState() {
