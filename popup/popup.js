@@ -6,6 +6,7 @@ const inboxStatusText = document.getElementById('inbox-status');
 const generatedOauthUrlInput = document.getElementById('generated-oauth-url');
 
 const emailProviderInput = document.getElementById('email-provider');
+const gmailAliasBaseInput = document.getElementById('gmail-alias-base');
 const runIncognitoInput = document.getElementById('run-incognito');
 const batchCountInput = document.getElementById('batch-count');
 const batchDelaySecondsInput = document.getElementById('batch-delay-seconds');
@@ -79,6 +80,7 @@ async function loadConfig() {
   const config = response?.config || {};
 
   emailProviderInput.value = config.emailProvider || 'mailapi';
+  gmailAliasBaseInput.value = config.gmailAliasBaseEmail || '';
   runIncognitoInput.value = config.runInIncognito === false ? 'false' : 'true';
   batchCountInput.value = String(config.batchCount || 1);
   batchDelaySecondsInput.value = String(config.batchDelaySeconds ?? 25);
@@ -99,6 +101,7 @@ async function saveConfig() {
     type: 'SET_CONFIG',
     config: {
       emailProvider: emailProviderInput.value,
+      gmailAliasBaseEmail: gmailAliasBaseInput.value.trim(),
       runInIncognito: runIncognitoInput.value !== 'false',
       batchCount: Math.max(1, Math.min(200, Number(batchCountInput.value) || 1)),
       batchDelaySeconds: Math.max(0, Math.min(300, Number(batchDelaySecondsInput.value) || 0)),

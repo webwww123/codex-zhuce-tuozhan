@@ -7,6 +7,7 @@ const DEFAULT_STATE = {
   pendingProfile: null,
   duckTabId: null,
   gmailTabId: null,
+  gmailTabOwned: false,
   regularWindowId: null,
   cpaTabId: null,
   oauthTabId: null,
@@ -261,6 +262,8 @@ async function getConfig() {
     codeWaitTimeoutSeconds: 150,
     runInIncognito: true,
     emailProvider: 'mailapi',
+    gmailAliasBaseEmail: '',
+    gmailAliasCounter: 0,
     duckForwardEmail: DUCK_FORWARD_AUPMAIL_EMAIL,
     duckForwardPassword: DEFAULT_MAILBOX_API_KEY,
     mailApiUrl: DEFAULT_MAILBOX_API_BASE,
@@ -272,11 +275,13 @@ async function getConfig() {
     ...defaults,
     ...saved
   };
-  next.emailProvider = next.emailProvider === 'duckduckgo' ? 'duckduckgo' : 'mailapi';
+  next.emailProvider = ['mailapi', 'duckduckgo', 'gmail_alias'].includes(next.emailProvider) ? next.emailProvider : 'mailapi';
   next.batchCount = normalizeBatchCount(next.batchCount, 1);
   next.batchDelaySeconds = normalizeBatchDelaySeconds(next.batchDelaySeconds, 25);
   next.codeWaitTimeoutSeconds = normalizeCodeWaitTimeoutSeconds(next.codeWaitTimeoutSeconds, 150);
   next.runInIncognito = next.runInIncognito !== false;
+  next.gmailAliasBaseEmail = String(next.gmailAliasBaseEmail || '').trim().toLowerCase();
+  next.gmailAliasCounter = Math.max(0, Number.parseInt(next.gmailAliasCounter, 10) || 0);
   next.mailApiUrl = String(next.mailApiUrl || DEFAULT_MAILBOX_API_BASE).trim() || DEFAULT_MAILBOX_API_BASE;
   next.mailApiKey = String(next.mailApiKey || next.duckForwardPassword || DEFAULT_MAILBOX_API_KEY).trim();
   next.duckForwardPassword = next.mailApiKey;
@@ -285,7 +290,7 @@ async function getConfig() {
 }
 
 async function setConfig(config) {
-  const provider = config?.emailProvider === 'duckduckgo' ? 'duckduckgo' : 'mailapi';
+  const provider = ['mailapi', 'duckduckgo', 'gmail_alias'].includes(config?.emailProvider) ? config.emailProvider : 'mailapi';
   const mailApiKey = (config?.mailApiKey || config?.duckForwardPassword || DEFAULT_MAILBOX_API_KEY).trim();
   const nextConfig = {
     emailProvider: provider,
@@ -293,6 +298,8 @@ async function setConfig(config) {
     batchDelaySeconds: normalizeBatchDelaySeconds(config?.batchDelaySeconds, 25),
     codeWaitTimeoutSeconds: normalizeCodeWaitTimeoutSeconds(config?.codeWaitTimeoutSeconds, 150),
     runInIncognito: config?.runInIncognito !== false,
+    gmailAliasBaseEmail: String(config?.gmailAliasBaseEmail || '').trim().toLowerCase(),
+    gmailAliasCounter: Math.max(0, Number.parseInt(config?.gmailAliasCounter, 10) || 0),
     oauthUrl: (config?.oauthUrl || '').trim(),
     cpaUrl: (config?.cpaUrl || DEFAULT_CPA_API_BASE).trim() || DEFAULT_CPA_API_BASE,
     cpaKey: (config?.cpaKey || '').trim(),
@@ -331,6 +338,112 @@ function splitMailboxAddress(value = '') {
   return {
     localPart: match[1],
     domain: match[2]
+  };
+}
+
+function normalizeGmailBaseEmail(value = '') {
+  const normalized = String(value || '').trim().toLowerCase();
+  const { localPart, domain } = splitMailboxAddress(normalized);
+  if (!localPart || !domain) {
+    return '';
+  }
+  const baseLocal = localPart.split('+')[0];
+  return baseLocal ? `${baseLocal}@${domain}` : '';
+}
+
+function buildGmailAliasEmail(baseEmail, index) {
+  const normalizedBase = normalizeGmailBaseEmail(baseEmail);
+  const { localPart, domain } = splitMailboxAddress(normalizedBase);
+  if (!localPart || !domain) {
+    throw new Error('Invalid Gmail base email');
+  }
+  const aliasIndex = Math.max(1, Number.parseInt(index, 10) || 1);
+  return `${localPart}+${aliasIndex}@${domain}`;
+}
+
+async function findLatestGmailTab() {
+  const tabs = await chrome.tabs.query({ url: ['https://mail.google.com/*'] });
+  if (!tabs?.length) {
+    return null;
+  }
+  const sorted = tabs
+    .slice()
+    .sort((left, right) => {
+      const scoreLeft = (left.active ? 1 : 0) * 1e15 + (left.lastAccessed || 0);
+      const scoreRight = (right.active ? 1 : 0) * 1e15 + (right.lastAccessed || 0);
+      return scoreRight - scoreLeft;
+    });
+  return sorted[0] || null;
+}
+
+async function detectGmailAccountEmailInTab(tabId) {
+  if (tabId == null) {
+    return '';
+  }
+  try {
+    const results = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => {
+        const collect = [];
+        const push = (text) => {
+          if (text && typeof text === 'string') {
+            collect.push(text);
+          }
+        };
+
+        push(document.querySelector('a[href*=\"SignOutOptions\"]')?.getAttribute('aria-label') || '');
+        push(document.querySelector('a[aria-label*=\"Google Account\"]')?.getAttribute('aria-label') || '');
+        push(document.querySelector('[data-email]')?.getAttribute('data-email') || '');
+        push(document.title || '');
+
+        const candidates = [];
+        for (const item of collect) {
+          const match = String(item).match(/[a-z0-9._%+-]+@[a-z0-9.-]+\\.[a-z]{2,}/i);
+          if (match?.[0]) {
+            candidates.push(match[0].toLowerCase());
+          }
+        }
+
+        return candidates[0] || '';
+      }
+    });
+    return normalizeGmailBaseEmail(results?.[0]?.result || '');
+  } catch (error) {
+    return '';
+  }
+}
+
+async function allocateGmailAliasEmail() {
+  const config = await getConfig();
+  const gmailTab = await findLatestGmailTab();
+  if (!gmailTab?.id) {
+    throw new Error('Please open and login Gmail first, then retry');
+  }
+
+  let baseEmail = normalizeGmailBaseEmail(config.gmailAliasBaseEmail);
+  const detectedEmail = await detectGmailAccountEmailInTab(gmailTab.id);
+  if (detectedEmail) {
+    baseEmail = detectedEmail;
+  }
+
+  if (!baseEmail) {
+    throw new Error('Unable to detect Gmail account from current Gmail tab');
+  }
+
+  const nextCounter = Math.max(1, Number.parseInt(config.gmailAliasCounter, 10) || 0) + 1;
+  const aliasEmail = buildGmailAliasEmail(baseEmail, nextCounter);
+  await setConfig({
+    ...config,
+    gmailAliasBaseEmail: baseEmail,
+    gmailAliasCounter: nextCounter
+  });
+
+  return {
+    email: aliasEmail,
+    baseEmail,
+    aliasIndex: nextCounter,
+    tabId: gmailTab.id,
+    windowId: gmailTab.windowId || null
   };
 }
 
@@ -1520,8 +1633,11 @@ async function closeDuckTab() {
 }
 
 async function closeGmailTab() {
-  await closeTabById(state.gmailTabId);
+  if (state.gmailTabOwned) {
+    await closeTabById(state.gmailTabId);
+  }
   state.gmailTabId = null;
+  state.gmailTabOwned = false;
 }
 
 async function closeCpaTab() {
@@ -1582,7 +1698,9 @@ async function requestDuckAddress(profile) {
   });
 }
 
-async function requestGmailCode() {
+async function requestGmailCode(options = {}) {
+  const preferredTabId = options?.preferredTabId;
+  const timeoutMs = Math.max(30000, Number.parseInt(options?.timeoutMs, 10) || 120000);
   if (gmailCodeWaiter) {
     return new Promise((resolve, reject) => {
       const previous = gmailCodeWaiter;
@@ -1599,16 +1717,42 @@ async function requestGmailCode() {
     });
   }
 
-  updateState({
-    status: 'running',
-    step: 'Opening Gmail inbox for latest OpenAI code',
-    error: null
-  });
+  let tab = null;
+  let gmailTabOwned = true;
+  if (preferredTabId != null) {
+    try {
+      const existingTab = await chrome.tabs.get(preferredTabId);
+      if (existingTab?.id) {
+        tab = await chrome.tabs.update(existingTab.id, {
+          url: 'https://mail.google.com/mail/u/0/#inbox',
+          active: true
+        });
+        await focusWindow(tab.windowId);
+        gmailTabOwned = false;
+      }
+    } catch (error) {
+    }
+  }
 
-  const tab = await openTabInRegularWindow('https://mail.google.com/mail/u/0/#inbox', state.regularWindowId || null);
+  if (!tab) {
+    updateState({
+      status: 'running',
+      step: 'Opening Gmail inbox for latest OpenAI code',
+      error: null
+    });
+    tab = await openTabInRegularWindow('https://mail.google.com/mail/u/0/#inbox', state.regularWindowId || null);
+    gmailTabOwned = true;
+  } else {
+    updateState({
+      status: 'running',
+      step: 'Using existing Gmail tab for latest OpenAI code',
+      error: null
+    });
+  }
 
   updateState({
     gmailTabId: tab?.id || null,
+    gmailTabOwned,
     regularWindowId: tab?.windowId || null,
     step: 'Waiting for latest OpenAI email in Gmail'
   });
@@ -1617,7 +1761,7 @@ async function requestGmailCode() {
     const timeoutId = setTimeout(() => {
       gmailCodeWaiter = null;
       reject(new Error('Timed out while waiting for Gmail verification code'));
-    }, 120000);
+    }, timeoutMs);
 
     gmailCodeWaiter = {
       resolve: async (code) => {
@@ -1638,6 +1782,25 @@ async function requestVerificationCode() {
   const config = await getConfig();
   const timeoutSeconds = normalizeCodeWaitTimeoutSeconds(config.codeWaitTimeoutSeconds, 150);
   const timeoutMs = timeoutSeconds * 1000;
+  if (config.emailProvider === 'gmail_alias') {
+    const gmailTab = await findLatestGmailTab();
+    if (!gmailTab?.id) {
+      throw new Error('Gmail Alias mode requires an opened Gmail tab');
+    }
+    updateState({
+      status: 'running',
+      step: `Waiting for latest OpenAI email in Gmail (timeout ${timeoutSeconds}s)`,
+      error: null,
+      gmailTabId: gmailTab.id,
+      gmailTabOwned: false,
+      regularWindowId: gmailTab.windowId || state.regularWindowId || null
+    });
+    return requestGmailCode({
+      preferredTabId: gmailTab.id,
+      timeoutMs
+    });
+  }
+
   if (config.emailProvider === 'mailapi') {
     updateState({
       status: 'running',
@@ -1692,7 +1855,22 @@ async function startSingleRegistration(profileInput) {
   state.aupmailSession = null;
 
   if (!profile.email) {
-    if (config.emailProvider === 'mailapi') {
+    if (config.emailProvider === 'gmail_alias') {
+      updateState({
+        status: 'running',
+        step: 'Reading Gmail account and generating alias email',
+        error: null
+      });
+      const aliasContext = await allocateGmailAliasEmail();
+      profile.email = aliasContext.email;
+      state.aupmailSession = null;
+      updateState({
+        gmailTabId: aliasContext.tabId,
+        gmailTabOwned: false,
+        regularWindowId: aliasContext.windowId || state.regularWindowId || null,
+        step: `Using Gmail alias ${profile.email}`
+      });
+    } else if (config.emailProvider === 'mailapi') {
       updateState({
         status: 'running',
         step: 'Generating mailbox address',
@@ -1973,6 +2151,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     case 'GMAIL_CODE_READY':
       if (gmailCodeWaiter && message.code) {
         state.gmailTabId = null;
+        state.gmailTabOwned = false;
         gmailCodeWaiter.resolve(message.code);
         sendResponse({ success: true });
       } else {

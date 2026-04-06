@@ -32,8 +32,13 @@
         <label for="email-provider">邮箱类型</label>
         <select id="email-provider">
           <option value="mailapi">Mailbox API</option>
+          <option value="gmail_alias">Gmail Alias (本地Gmail)</option>
           <option value="duckduckgo">DuckDuckGo</option>
         </select>
+      </div>
+      <div class="field">
+        <label for="gmail-alias-base">Gmail 基础邮箱(可选)</label>
+        <input id="gmail-alias-base" type="email" placeholder="自动从已打开Gmail页读取">
       </div>
       <div class="field">
         <label for="run-incognito">浏览器模式</label>
