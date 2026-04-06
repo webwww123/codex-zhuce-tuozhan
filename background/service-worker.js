@@ -48,7 +48,7 @@ let batchAdvanceTimer = null;
 let batchAdvancing = false;
 const CONFIG_KEY = 'app_config';
 const FLOW_STATE_KEY = 'flow_state';
-const DEFAULT_CPA_API_BASE = 'https://huangcli.zeabur.app';
+const DEFAULT_CPA_API_BASE = 'https://codex.supxh.xin';
 const DUCK_FORWARD_AUPMAIL_EMAIL = '';
 const DEFAULT_MAILBOX_API_BASE = 'http://74.48.147.156:8787';
 const DEFAULT_MAILBOX_API_KEY = 'tm_admin_4eb9dc0f02948ddfbb4595dc511465364bbf37ed26265483';
@@ -253,7 +253,7 @@ async function getPersistedFlowState() {
 async function getConfig() {
   const stored = await chrome.storage.local.get(CONFIG_KEY);
   const defaults = {
-    cpaKey: '',
+    cpaKey: 'webwww123',
     cpaUrl: DEFAULT_CPA_API_BASE,
     oauthUrl: '',
     batchCount: 1,

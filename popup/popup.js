@@ -83,8 +83,8 @@ async function loadConfig() {
   batchCountInput.value = String(config.batchCount || 1);
   batchDelaySecondsInput.value = String(config.batchDelaySeconds ?? 25);
   codeTimeoutSecondsInput.value = String(config.codeWaitTimeoutSeconds ?? 150);
-  cpaUrlInput.value = config.cpaUrl || 'https://huangcli.zeabur.app';
-  cpaKeyInput.value = config.cpaKey || '';
+  cpaUrlInput.value = config.cpaUrl || 'https://codex.supxh.xin';
+  cpaKeyInput.value = config.cpaKey || 'webwww123';
 
   mailApiUrlInput.value = config.mailApiUrl || 'http://74.48.147.156:8787';
   mailDomainInput.value = config.mailDomain || '';
