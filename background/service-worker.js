@@ -26,6 +26,7 @@ const DEFAULT_STATE = {
     time: '',
     preview: ''
   },
+  useIncognito: true,
   consumedMailIds: [],
   finalFlowStarted: false,
   postSignupPending: false,
@@ -76,6 +77,7 @@ function getPublicState() {
     oauthSourceUrl: state.oauthSourceUrl || '',
     verifyInboxStatus: state.verifyInboxStatus || { email: '', state: 'idle', message: '' },
     latestMail: state.latestMail || { sender: '', subject: '', time: '', preview: '' },
+    useIncognito: state.useIncognito !== false,
     paused: Boolean(state.paused)
   };
 }
@@ -116,6 +118,7 @@ async function getConfig() {
     cpaKey: '',
     cpaUrl: DEFAULT_CPA_API_BASE,
     oauthUrl: '',
+    runInIncognito: true,
     emailProvider: 'mailapi',
     duckForwardEmail: DUCK_FORWARD_AUPMAIL_EMAIL,
     duckForwardPassword: DEFAULT_MAILBOX_API_KEY,
@@ -129,6 +132,7 @@ async function getConfig() {
     ...saved
   };
   next.emailProvider = next.emailProvider === 'duckduckgo' ? 'duckduckgo' : 'mailapi';
+  next.runInIncognito = next.runInIncognito !== false;
   next.mailApiUrl = String(next.mailApiUrl || DEFAULT_MAILBOX_API_BASE).trim() || DEFAULT_MAILBOX_API_BASE;
   next.mailApiKey = String(next.mailApiKey || next.duckForwardPassword || DEFAULT_MAILBOX_API_KEY).trim();
   next.duckForwardPassword = next.mailApiKey;
@@ -141,6 +145,7 @@ async function setConfig(config) {
   const mailApiKey = (config?.mailApiKey || config?.duckForwardPassword || DEFAULT_MAILBOX_API_KEY).trim();
   const nextConfig = {
     emailProvider: provider,
+    runInIncognito: config?.runInIncognito !== false,
     oauthUrl: (config?.oauthUrl || '').trim(),
     cpaUrl: (config?.cpaUrl || DEFAULT_CPA_API_BASE).trim() || DEFAULT_CPA_API_BASE,
     cpaKey: (config?.cpaKey || '').trim(),
@@ -1240,12 +1245,12 @@ async function openCpaWindow(cpaUrl) {
   });
 }
 
-async function openOauthWindow(url) {
+async function openOauthWindow(url, useIncognito = true) {
   await closeOauthTab();
   const tab = await reuseOrCreateTab({
     url,
     preferredWindowId: state.session?.windowId || null,
-    incognito: true,
+    incognito: useIncognito,
     createWindowIfNeeded: true
   });
   const tabId = tab?.id || null;
@@ -1262,9 +1267,10 @@ async function openOauthWindow(url) {
 
 async function openOauthRetryTab(url) {
   await closeOauthTab();
+  const useIncognito = state.useIncognito !== false;
 
   try {
-    if (state.session?.windowId) {
+    if (useIncognito && state.session?.windowId) {
       const tab = await chrome.tabs.create({
         windowId: state.session.windowId,
         url,
@@ -1283,11 +1289,12 @@ async function openOauthRetryTab(url) {
   } catch (error) {
   }
 
-  await openOauthWindow(url);
+  await openOauthWindow(url, useIncognito);
 }
 
 async function startCpaOAuthFlow() {
   const config = await getConfig();
+  const useIncognito = state.useIncognito !== false;
   if (!config.cpaKey) {
     updateState({
       status: 'completed',
@@ -1301,6 +1308,7 @@ async function startCpaOAuthFlow() {
     status: 'running',
     step: 'Starting CPA OAuth flow',
     error: null,
+    useIncognito,
     oauthCallbackUrl: null,
     finalFlowStarted: true,
     postSignupPending: false
@@ -1316,7 +1324,7 @@ async function startCpaOAuthFlow() {
     oauthSourceUrl: authUrl,
     oauthForceLogin: false
   });
-  await openOauthWindow(authUrl);
+  await openOauthWindow(authUrl, useIncognito);
 }
 
 async function closeTabById(tabId) {
@@ -1488,14 +1496,18 @@ async function requestVerificationCode() {
 async function startRegistration(profileInput) {
   const profile = generateProfile(profileInput);
   const config = await getConfig();
+  const useIncognito = config.runInIncognito !== false;
 
   updateState({
     status: 'running',
-    step: 'Closing existing incognito windows',
-    error: null
+    step: useIncognito ? 'Closing existing incognito windows' : 'Preparing browser window',
+    error: null,
+    useIncognito
   });
 
-  await closeAllIncognitoWindows();
+  if (useIncognito) {
+    await closeAllIncognitoWindows();
+  }
   await cleanupManagedMailboxSession(state.aupmailSession);
   state.aupmailSession = null;
 
@@ -1540,9 +1552,9 @@ async function startRegistration(profileInput) {
     cpaAuthState: authState || '',
     oauthSourceUrl: authUrl,
     oauthForceLogin: false,
-    step: 'Opening Codex OAuth in incognito'
+    step: useIncognito ? 'Opening Codex OAuth in incognito' : 'Opening Codex OAuth in regular window'
   });
-  await openOauthWindow(authUrl);
+  await openOauthWindow(authUrl, useIncognito);
   return { success: true, state: getPublicState() };
 }
 
@@ -1702,7 +1714,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         oauthSourceUrl: message.url,
         oauthForceLogin: false
       });
-      openOauthWindow(message.url).then(() => sendResponse({ success: true })).catch((error) => {
+      openOauthWindow(message.url, state.useIncognito !== false).then(() => sendResponse({ success: true })).catch((error) => {
         updateState({ status: 'error', error: error.message || String(error) });
         sendResponse({ success: false, error: error.message || String(error) });
       });

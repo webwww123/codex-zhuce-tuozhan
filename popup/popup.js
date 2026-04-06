@@ -5,6 +5,7 @@ const errorBox = document.getElementById('error-box');
 const generatedOauthUrlInput = document.getElementById('generated-oauth-url');
 
 const emailProviderInput = document.getElementById('email-provider');
+const runIncognitoInput = document.getElementById('run-incognito');
 const cpaUrlInput = document.getElementById('cpa-url');
 const cpaKeyInput = document.getElementById('cpa-key');
 const mailApiUrlInput = document.getElementById('mail-api-url');
@@ -66,6 +67,7 @@ async function loadConfig() {
   const config = response?.config || {};
 
   emailProviderInput.value = config.emailProvider || 'mailapi';
+  runIncognitoInput.value = config.runInIncognito === false ? 'false' : 'true';
   cpaUrlInput.value = config.cpaUrl || 'https://huangcli.zeabur.app';
   cpaKeyInput.value = config.cpaKey || '';
 
@@ -82,6 +84,7 @@ async function saveConfig() {
     type: 'SET_CONFIG',
     config: {
       emailProvider: emailProviderInput.value,
+      runInIncognito: runIncognitoInput.value !== 'false',
       cpaUrl: cpaUrlInput.value.trim(),
       cpaKey: cpaKeyInput.value.trim(),
 
